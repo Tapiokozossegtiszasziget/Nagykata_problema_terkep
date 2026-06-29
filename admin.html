@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Problématérkép - Adminisztrációs Panel</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f0f2f5; }
+        .admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; color: #4827AF; }
+        
+        /* Login Box */
+        #login-box { max-width: 350px; margin: 100px auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center; }
+        #login-box input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
+        #login-box button { width: 100%; padding: 12px; background: #4827AF; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+        
+        #admin-content { display: none; }
+        .layout { display: flex; gap: 20px; height: 680px; }
+        .sidebar { flex: 1; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); overflow-y: auto; display: flex; flex-direction: column; gap: 15px; }
+        .map-box { flex: 2; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        #map { height: 100%; width: 100%; }
+
+        .section-title { font-size: 14px; font-weight: bold; text-transform: uppercase; color: #666; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+        .admin-item { padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; cursor: pointer; background: #fdfdfd; }
+        .admin-item:hover { background: #f5f5f5; }
+        .status-badge { float: right; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: bold; color: white; }
+        .badge-wait { background: #FF4208; }
+        .badge-ok { background: #28a745; }
+
+        /* Form */
+        .form-popup { width: 260px; font-size: 13px; }
+        .form-popup label { display: block; margin-top: 8px; font-weight: bold; }
+        .form-popup input, .form-popup textarea { width: 100%; padding: 5px; margin-top: 3px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        .coord-row { display: flex; gap: 6px; }
+        .cat-container { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+        .cat-btn { background: #fff; border: 1px solid #ccc; padding: 3px 6px; border-radius: 12px; font-size: 11px; cursor: pointer; }
+        .cat-btn.selected { background: #FF4208; color: white; border-color: #FF4208; }
+        .type-select { display: flex; gap: 6px; margin-bottom: 6px; }
+        .type-btn { flex: 1; padding: 5px; border: 1px solid #ccc; border-radius: 4px; text-align: center; cursor: pointer; font-weight: bold; }
+        .type-btn.prob.active { background: #FF4208; color: white; }
+        .type-btn.lux.active { background: #4827AF; color: white; }
+        
+        .action-row { display: flex; gap: 6px; margin-top: 10px; border-top: 1px solid #eee; padding-top: 6px; }
+        .btn-approve { background: #28a745; color: white; border: none; padding: 6px; border-radius: 4px; font-weight: bold; flex: 1; cursor: pointer; }
+        .btn-edit { background: #4827AF; color: white; border: none; padding: 6px; border-radius: 4px; font-weight: bold; flex: 1; cursor: pointer; }
+        .btn-del { background: #dc3545; color: white; border: none; padding: 6px; border-radius: 4px; font-weight: bold; flex: 1; cursor: pointer; }
+        .main-save-btn { width: 100%; margin-top: 12px; padding: 8px; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div id="login-box">
+        <h2 style="color:#4827AF; margin-top:0;">Admin Belépés</h2>
+        <input type="text" id="username" placeholder="Felhasználónév">
+        <input type="password" id="password" placeholder="Jelszó">
+        <button onclick="checkLogin()">Belépés</button>
+    </div>
+
+    <div id="admin-content">
+        <div class="admin-header">
+            <h2>Nagykáta Problématérkép — Központi Moderáció</h2>
+            <button onclick="location.reload()" style="padding: 6px 12px; cursor:pointer;">Kijelentkezés</button>
+        </div>
+
+        <div class="layout">
+            <div class="sidebar">
+                <div class="section-title">Engedélyezésre váró új ügyek</div>
+                <div id="waiting-list" style="display:flex; flex-direction:column; gap:8px;"></div>
+                
+                <div class="section-title" style="margin-top:10px;">Aktív / Megjelenített ügyek</div>
+                <div id="approved-list" style="display:flex; flex-direction:column; gap:8px;"></div>
+            </div>
+            <div class="map-box">
+                <div id="map"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="popup-form-template" style="display: none;">
+        <div class="form-popup">
+            <div class="type-select">
+                <div class="type-btn prob active" onclick="switchType('problem')">Probléma</div>
+                <div class="type-btn lux" onclick="switchType('lux')">Közpénz-luxus</div>
+            </div>
+
+            <label>Lokáció koordináták (Lat / Lng):</label>
+            <div class="coord-row">
+                <input type="text" id="adm-lat" placeholder="Szélesség">
+                <input type="text" id="adm-lng" placeholder="Hosszúság">
+            </div>
+
+            <div id="form-problem-section">
+                <label>Probléma leírása:</label><textarea id="p-desc"></textarea>
+                <label>Kategória:</label>
+                <div class="cat-container">
+                    <div class="cat-btn" onclick="selectCat(this, 'Úthiba')">Úthiba</div>
+                    <div class="cat-btn" onclick="selectCat(this, 'Közvilágítás')">Közvilágítás</div>
+                    <div class="cat-btn" onclick="selectCat(this, 'Zöldterület')">Zöldterület</div>
+                    <div class="cat-btn" onclick="selectCat(this, 'Hulladék')">Hulladék</div>
+                    <div class="cat-btn" onclick="selectCat(this, 'Egyéb')">Egyéb</div>
+                </div>
+                <label>Megoldási javaslat:</label><textarea id="p-solution"></textarea>
+                <label>Ki a felelős?</label><input type="text" id="p-owner">
+                <label>Becsült költség (Ft):</label><input type="number" id="p-cost">
+            </div>
+
+            <div id="form-lux-section" style="display: none;">
+                <label>Mutatvány / Luxizás leírása:</label><textarea id="l-desc"></textarea>
+                <label>Kik vettek részt?</label><input type="text" id="l-actors">
+                <label>Időszak / Dátum:</label><input type="text" id="l-date">
+                <label>Becsült összeg (Ft):</label><input type="number" id="l-cost">
+            </div>
+            <button id="save-btn" class="main-save-btn" style="background:#28a745;">Mentés</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, push, onValue, remove, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDCICsJnMdxTXDpRSNpaCtdAWAP3-sH8i4",
+            authDomain: "nagykata-problema-terkep.firebaseapp.com",
+            databaseURL: "https://nagykata-problema-terkep-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "nagykata-problema-terkep",
+            storageBucket: "nagykata-problema-terkep.firebasestorage.app",
+            messagingSenderId: "1096765055226",
+            appId: "1:1096765055226:web:b06fd311003cfc2d5d6943"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const markersRef = ref(db, 'problems');
+
+        const nagykataCoords = [47.4161, 19.7423];
+        const maxDistance = 5000;
+        var map, temporaryMarker, clickedLatLng;
+        let localDataCache = {};
+        let activeMarkers = {};
+
+        // Belépés ellenőrzése funkció
+        window.checkLogin = function() {
+            let u = document.getElementById('username').value;
+            let p = document.getElementById('password').value;
+            if(u === 'admin' && p === 'NAgykata2026!') {
+                document.getElementById('login-box').style.display = 'none';
+                document.getElementById('admin-content').style.display = 'block';
+                initAdminMap();
+            } else { alert("Hibás felhasználónév vagy jelszó!"); }
+        };
+
+        function initAdminMap() {
+            if(map) return;
+            map = L.map('map').setView(nagykataCoords, 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            L.circle(nagykataCoords, { color: '#4827AF', fillColor: '#4827AF', fillOpacity: 0.02, radius: maxDistance }).addTo(map);
+
+            // Kattintás új admin ponthoz
+            map.on('click', function(e) {
+                if(map.distance(e.latlng, nagykataCoords) > maxDistance) { alert("Körzeten kívül!"); return; }
+                clickedLatLng = e.latlng;
+                if (temporaryMarker) map.removeLayer(temporaryMarker);
+
+                temporaryMarker = L.circleMarker(e.latlng, { radius: 14, fillColor: '#FF4208', color: '#fff', weight: 2, fillOpacity: 0.6 }).addTo(map);
+                openAdminForm(null, true);
+            });
+
+            loadData();
+        }
+
+        window.currentType = 'problem'; window.selectedCategory = '';
+        window.switchType = function(t) {
+            window.currentType = t;
+            document.getElementById('form-problem-section').style.display = t==='problem'?'block':'none';
+            document.getElementById('form-lux-section').style.display = t==='lux'?'block':'none';
+            document.querySelector('.leaflet-popup .type-btn.prob').className = t==='problem'?'type-btn prob active':'type-btn prob';
+            document.querySelector('.leaflet-popup .type-btn.lux').className = t==='lux'?'type-btn lux active':'type-btn lux';
+        };
+        window.selectCat = function(e, c) {
+            document.querySelectorAll('.leaflet-popup .cat-btn').forEach(b => b.classList.remove('selected'));
+            e.classList.add('selected'); window.selectedCategory = c;
+        };
+
+        window.approveItem = function(k) {
+            update(ref(db, `problems/${k}`), { approved: true });
+        };
+        window.deleteItem = function(k) {
+            if(confirm("Törlöd?")) remove(ref(db, `problems/${k}`)).then(() => map.closePopup());
+        };
+
+        function openAdminForm(key, isNew = false) {
+            let content = document.getElementById('popup-form-template').innerHTML;
+            let targetMarker = isNew ? temporaryMarker : activeMarkers[key];
+            targetMarker.bindPopup(content, { maxWidth: 280 }).openPopup();
+
+            setTimeout(() => {
+                if(!isNew) {
+                    const item = localDataCache[key];
+                    document.querySelector('.leaflet-popup #adm-lat').value = item.lat;
+                    document.querySelector('.leaflet-popup #adm-lng').value = item.lng;
+                    switchType(item.type || 'problem');
+                    if((item.type || 'problem')==='problem') {
+                        document.querySelector('.leaflet-popup #p-desc').value = item.desc || '';
+                        document.querySelector('.leaflet-popup #p-solution').value = item.solution || '';
+                        document.querySelector('.leaflet-popup #p-owner').value = item.owner || '';
+                        document.querySelector('.leaflet-popup #p-cost').value = item.cost || 0;
+                        window.selectedCategory = item.category || 'Egyéb';
+                        document.querySelectorAll('.leaflet-popup .cat-btn').forEach(b => { if(b.innerText===window.selectedCategory) b.classList.add('selected'); });
+                    } else {
+                        document.querySelector('.leaflet-popup #l-desc').value = item.desc || '';
+                        document.querySelector('.leaflet-popup #l-actors').value = item.actors || '';
+                        document.querySelector('.leaflet-popup #l-date').value = item.date || '';
+                        document.querySelector('.leaflet-popup #l-cost').value = item.cost || 0;
+                    }
+                } else {
+                    document.querySelector('.leaflet-popup #adm-lat').value = clickedLatLng.lat.toFixed(5);
+                    document.querySelector('.leaflet-popup #adm-lng').value = clickedLatLng.lng.toFixed(5);
+                    switchType('problem');
+                }
+
+                document.querySelector('.leaflet-popup #save-btn').onclick = function() {
+                    let latVal = parseFloat(document.querySelector('.leaflet-popup #adm-lat').value);
+                    let lngVal = parseFloat(document.querySelector('.leaflet-popup #adm-lng').value);
+                    
+                    let d = { lat: latVal, lng: lngVal, type: window.currentType };
+                    if(window.currentType === 'problem') {
+                        d.desc = document.querySelector('.leaflet-popup #p-desc').value;
+                        d.category = window.selectedCategory || 'Egyéb';
+                        d.solution = document.querySelector('.leaflet-popup #p-solution').value || 'Nincs';
+                        d.owner = document.querySelector('.leaflet-popup #p-owner').value || 'Nem ismert';
+                        d.cost = document.querySelector('.leaflet-popup #p-cost').value || 0;
+                    } else {
+                        d.desc = document.querySelector('.leaflet-popup #l-desc').value;
+                        d.actors = document.querySelector('.leaflet-popup #l-actors').value || 'Nem ismert';
+                        d.date = document.querySelector('.leaflet-popup #l-date').value || 'Nincs megadva';
+                        d.cost = document.querySelector('.leaflet-popup #l-cost').value || 0;
+                    }
+                    if(!d.desc) { alert("Leírás kötelező!"); return; }
+
+                    if(isNew) {
+                        d.approved = true; // Amit az admin rak le, az azonnal jóváhagyott
+                        push(markersRef, d).then(() => { map.closePopup(); map.removeLayer(temporaryMarker); });
+                    } else {
+                        d.approved = localDataCache[key].approved;
+                        update(ref(db, `problems/${key}`), d).then(() => map.closePopup());
+                    }
+                };
+            }, 150);
+        }
+
+        window.adminActionEdit = function(k) { openAdminForm(k, false); };
+
+        function loadData() {
+            onValue(markersRef, (snapshot) => {
+                Object.keys(activeMarkers).forEach(k => map.removeLayer(activeMarkers[k]));
+                activeMarkers = {};
+                const waitList = document.getElementById('waiting-list');
+                const appList = document.getElementById('approved-list');
+                waitList.innerHTML = ''; appList.innerHTML = '';
+
+                const data = snapshot.val();
+                localDataCache = data || {};
+
+                if (data) {
+                    Object.keys(data).forEach(key => {
+                        const item = data[key];
+                        const isProb = item.type !== 'lux';
+                        
+                        // Lista elemek generálása balra
+                        const div = document.createElement('div');
+                        div.className = 'admin-item';
+                        div.innerHTML = `<span class="status-badge ${item.approved?'badge-ok':'badge-wait'}">${item.approved?'Aktív':'Új'}</span><b>${isProb?'['+item.category+']':'[Mutyi]'}</b><br>${item.desc.substring(0,40)}...`;
+                        div.onclick = () => { map.setView([item.lat, item.lng], 15); activeMarkers[key].openPopup(); };
+                        
+                        if(item.approved) appList.appendChild(div); else waitList.appendChild(div);
+
+                        // Térkép popup kezelő gombokkal admin számára
+                        let popHtml = `<b>${isProb ? '[Probléma — '+item.category+']' : '[Közpénz-luxus]'}</b><br>${item.desc}<br><b>Pozíció:</b> ${item.lat.toFixed(4)}, ${item.lng.toFixed(4)}`;
+                        popHtml += `<div class="action-row">`;
+                        if(!item.approved) popHtml += `<button class="btn-approve" onclick="window.approveItem('${key}')">Engedélyez</button>`;
+                        popHtml += `<button class="btn-edit" onclick="window.adminActionEdit('${key}')">Szerkeszt</button>`;
+                        popHtml += `<button class="btn-del" onclick="window.deleteItem('${key}')">Töröl</button>`;
+                        popHtml += `</div>`;
+
+                        let m = L.circleMarker([item.lat, item.lng], {
+                            radius: 14, fillColor: item.approved ? (isProb ? '#FF4208' : '#4827AF') : '#999', color: '#fff', weight: 2, fillOpacity: 0.85
+                        }).addTo(map).bindPopup(popHtml);
+                        activeMarkers[key] = m;
+                    });
+                }
+            });
+        }
+    </script>
+</body>
+</html>
