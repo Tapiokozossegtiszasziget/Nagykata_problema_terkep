@@ -53,7 +53,7 @@
         <h2 style="color:#4827AF; margin-top:0;">Admin Belépés</h2>
         <input type="text" id="username" placeholder="Felhasználónév">
         <input type="password" id="password" placeholder="Jelszó">
-        <button onclick="checkLogin()">Belépés</button>
+        <button id="login-btn">Belépés</button>
     </div>
 
     <div id="admin-content">
@@ -139,15 +139,17 @@
         let localDataCache = {};
         let activeMarkers = {};
 
-        // Belépés ellenőrzése funkció
-        window.checkLogin = function() {
+        // Belépési gomb kezelése közvetlenül a modulon belül kötve
+        document.getElementById('login-btn').onclick = function() {
             let u = document.getElementById('username').value;
             let p = document.getElementById('password').value;
             if(u === 'tapioadmin' && p === 'NAgykata2026!') {
                 document.getElementById('login-box').style.display = 'none';
                 document.getElementById('admin-content').style.display = 'block';
                 initAdminMap();
-            } else { alert("Hibás felhasználónév vagy jelszó!"); }
+            } else { 
+                alert("Hibás felhasználónév vagy jelszó!"); 
+            }
         };
 
         function initAdminMap() {
@@ -156,7 +158,6 @@
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
             L.circle(nagykataCoords, { color: '#4827AF', fillColor: '#4827AF', fillOpacity: 0.02, radius: maxDistance }).addTo(map);
 
-            // Kattintás új admin ponthoz
             map.on('click', function(e) {
                 if(map.distance(e.latlng, nagykataCoords) > maxDistance) { alert("Körzeten kívül!"); return; }
                 clickedLatLng = e.latlng;
@@ -186,7 +187,7 @@
             update(ref(db, `problems/${k}`), { approved: true });
         };
         window.deleteItem = function(k) {
-            if(confirm("Törlöd?")) remove(ref(db, `problems/${k}`)).then(() => map.closePopup());
+            if(confirm("Biztosan törlöd ezt a bejegyzést?")) remove(ref(db, `problems/${k}`)).then(() => map.closePopup());
         };
 
         function openAdminForm(key, isNew = false) {
@@ -239,7 +240,7 @@
                     if(!d.desc) { alert("Leírás kötelező!"); return; }
 
                     if(isNew) {
-                        d.approved = true; // Amit az admin rak le, az azonnal jóváhagyott
+                        d.approved = true; 
                         push(markersRef, d).then(() => { map.closePopup(); map.removeLayer(temporaryMarker); });
                     } else {
                         d.approved = localDataCache[key].approved;
@@ -257,7 +258,8 @@
                 activeMarkers = {};
                 const waitList = document.getElementById('waiting-list');
                 const appList = document.getElementById('approved-list');
-                waitList.innerHTML = ''; appList.innerHTML = '';
+                if(waitList) waitList.innerHTML = ''; 
+                if(appList) appList.innerHTML = '';
 
                 const data = snapshot.val();
                 localDataCache = data || {};
@@ -267,15 +269,13 @@
                         const item = data[key];
                         const isProb = item.type !== 'lux';
                         
-                        // Lista elemek generálása balra
                         const div = document.createElement('div');
                         div.className = 'admin-item';
                         div.innerHTML = `<span class="status-badge ${item.approved?'badge-ok':'badge-wait'}">${item.approved?'Aktív':'Új'}</span><b>${isProb?'['+item.category+']':'[Mutyi]'}</b><br>${item.desc.substring(0,40)}...`;
                         div.onclick = () => { map.setView([item.lat, item.lng], 15); activeMarkers[key].openPopup(); };
                         
-                        if(item.approved) appList.appendChild(div); else waitList.appendChild(div);
+                        if(item.approved) { if(appList) appList.appendChild(div); } else { if(waitList) waitList.appendChild(div); }
 
-                        // Térkép popup kezelő gombokkal admin számára
                         let popHtml = `<b>${isProb ? '[Probléma — '+item.category+']' : '[Közpénz-luxus]'}</b><br>${item.desc}<br><b>Pozíció:</b> ${item.lat.toFixed(4)}, ${item.lng.toFixed(4)}`;
                         popHtml += `<div class="action-row">`;
                         if(!item.approved) popHtml += `<button class="btn-approve" onclick="window.approveItem('${key}')">Engedélyez</button>`;
